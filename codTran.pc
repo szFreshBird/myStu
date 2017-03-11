@@ -1,0 +1,1134 @@
+/*
+ *
+ * Licence: GPL v2
+ * Author: allen lai
+ * Date:   2016/3/22
+ * File:   conver.c
+ * Desc:
+ *         conver character one by one
+ *         
+ * Copyright (C) 2016 
+ *
+ */
+
+/* These are all the functions necessary to implement conver */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <iconv.h>
+#include "cshInit.h"
+
+#define DEBUG_TEST 1
+
+#define PRINT_TEST \
+ 	do { \
+ 		fprintf(stderr, "[%s\t%s]LINE:%d\tFUNC:%s\n",__DATE__, __TIME__, __LINE__, __FUNCTION__); \
+ 	} while(0) \
+
+#define BUF_LEN 512
+
+/* define single charater length by set */
+#define UTF8_LEN 3 
+#define UNICODE_LEN 2
+#define BIG_LEN 2
+#define IN_COD_LEN 4
+
+#define OIBS_TO_PREMACHINE 1
+#define PREMACHINE_TO_OIBS 2
+ 
+#define clr(str) (memset(str, 0x00, sizeof(str)))
+
+int print_hex(unsigned char *src, int len)
+{
+	int i = 0;
+	unsigned char print_buf[512];
+	
+	clr(print_buf);
+	
+	
+	/*Print Hex*/
+	for(i=0;i<len;i++)
+	{
+		if (src[i] == '\0')
+		{
+			printf("\n");
+			break;
+		}
+		fprintf(stderr, "%X", (unsigned char)src[i]);
+	}
+	
+	return 0;
+}
+
+int code_iconv(const char *from_charset, const char *to_charset, 
+	char *inbuf, size_t inlen, char *outbuf, size_t outlen)
+{
+	iconv_t cd;
+	int rc;
+	char **pin=&inbuf;
+	char **pout=&outbuf;
+	
+	cd = iconv_open(to_charset, from_charset);
+	
+	if (cd == (iconv_t)(-1) )
+	{
+		fprintf(stderr, "iconv_open error");
+		return -1;
+	}
+	
+	memset(outbuf, 0, outlen);
+	if ( iconv(cd, pin, &inlen, pout, &outlen) == (size_t)(-1))
+	{
+		fprintf(stderr, "iconv error");
+		iconv_close(cd);
+		return -2;
+	}
+
+	iconv_close(cd);
+	
+	return 0;	
+}
+
+/* utf-8 -> big5 */
+int utf2unicode(unsigned char *inbuf, size_t inlen, unsigned char *outbuf,  
+	size_t outlen)
+{
+	return code_iconv("UTF-8","Unicode",inbuf,inlen,outbuf,outlen);
+}
+
+int unicode2big(unsigned char *inbuf, size_t inlen, unsigned char *outbuf,  
+	size_t outlen)
+{
+	PRINT_TEST;
+	return code_iconv("Unicode","big5",inbuf,inlen,outbuf,outlen);
+}
+
+/*
+ * set * big code 
+ */
+int set_big5_start(char *buf)
+{
+	unsigned char tmp[BIG_LEN + 1];
+	unsigned char star[]="A466";
+	
+	int v1,v2;
+	clr(tmp);
+	
+	sscanf(star, "%2X%2X", &v1, &v2);
+	tmp[0] = (unsigned char)v1;
+	tmp[1] =  (unsigned char)v2;
+	tmp[2] = '\0';
+	
+	memcpy(buf, tmp, BIG_LEN);
+	
+	return 0;
+}
+
+/*
+ * set * utf-8 code (EFBC8A)
+ */
+int set_utf8_start(char *buf)
+{
+	unsigned char tmp[UTF8_LEN + 1];
+	unsigned char star[]="E58FA3";
+	
+	int v1,v2,v3;
+	clr(tmp);
+	
+	sscanf(star, "%2X%2X%2X", &v1, &v2, &v3);
+	tmp[0] = (unsigned char)v1;
+	tmp[1] =  (unsigned char)v2;
+	tmp[2] =  (unsigned char)v3;
+	tmp[3] = '\0';
+	
+	memcpy(buf, tmp, UTF8_LEN);
+	
+	return 0;
+}
+
+
+/*
+ * hex incode to big5
+ */
+int hex2big5(char *inbuf, char *outbuf)
+{
+	unsigned char tmp[BIG_LEN + 1];
+	unsigned char hex[IN_COD_LEN + 1];
+	
+	int v1,v2;
+	
+	clr(tmp);
+	clr(hex);
+
+PRINT_TEST;
+	
+	memcpy(hex, inbuf, IN_COD_LEN);	
+	
+	sscanf(hex, "%2X%2X", &v1, &v2);
+	tmp[0] = (unsigned char)v1;
+	tmp[1] =  (unsigned char)v2;
+	tmp[2] = '\0';
+	
+	memcpy(outbuf, tmp, BIG_LEN);
+	
+	return 0;
+}
+
+/*
+ * hex to unicode
+ */
+int hex2unicode(char *inbuf, char *outbuf)
+{
+	unsigned char tmp[UNICODE_LEN + 1];
+	unsigned char hex[IN_COD_LEN + 1];
+	
+	int v1,v2;
+	
+	clr(tmp);
+	clr(hex);
+PRINT_TEST;	
+	memcpy(hex, inbuf, IN_COD_LEN);
+	
+	sscanf(hex, "%2X%2X", &v1, &v2);
+	tmp[0] = (unsigned char)v1;
+	tmp[1] =  (unsigned char)v2;
+	tmp[2] = '\0';
+	
+	memcpy(outbuf, tmp, UNICODE_LEN);
+	
+	return 0;
+}
+
+
+/*
+ * unicode is hex, and incode is hex
+ */
+int query_hex_by_unicode(unsigned char *inbuf, unsigned char *outbuf)
+{
+	EXEC SQL BEGIN DECLARE SECTION;
+	char unicode[8 + 1];
+	char big5[8 + 1];
+	EXEC SQL END DECLARE SECTION;
+	
+	clr(big5);
+	clr(unicode);
+	
+	memcpy(unicode, inbuf, IN_COD_LEN);
+	
+#ifdef DEBUG_TEST
+	fprintf(stderr, "in query_hex_by_unicode: unicode is %s\n", unicode);
+#endif
+	
+	EXEC SQL SELECT IN_COD
+                   INTO :big5
+                   FROM UDT_TW_ZJZL_UN_WORD
+                  WHERE UNICODE = :unicode;
+                                     
+        if (sqlca.sqlcode)
+        {       
+		printf("query_hex_by_unicode sql error!\n");
+		return -1;  
+        }
+        
+        memcpy(outbuf, big5, strlen(big5));
+        
+#ifdef DEBUG_TEST
+	fprintf(stderr, "in query_hex_by_unicode: big5 is %s\n", big5);
+#endif
+        
+        return 0;
+}
+
+/*
+ * incode is hex, and unicode is hex
+ */
+int query_hex_by_incode(unsigned char *inbuf, unsigned char *outbuf)
+{
+	EXEC SQL BEGIN DECLARE SECTION;
+	char unicode[8 + 1];
+	char big5[8 + 1];
+	EXEC SQL END DECLARE SECTION;
+	
+	clr(big5);
+	clr(unicode);
+	
+	memcpy(big5, inbuf, IN_COD_LEN);
+	
+#ifdef DEBUG_TEST
+	fprintf(stderr, "in query_hex_by_incode: big5 is %s\n", big5);
+#endif
+	
+	EXEC SQL SELECT UNICODE
+                   INTO :unicode
+                   FROM UDT_TW_ZJZL_UN_WORD
+                  WHERE IN_COD = :big5;
+                                     
+        if (sqlca.sqlcode)
+        {       
+		printf("query_hex_by_incode sql error!\n");
+		return -1;  
+        }
+        
+        memcpy(outbuf, unicode, strlen(unicode));
+        
+#ifdef DEBUG_TEST
+	fprintf(stderr, "in query_hex_by_incode: unicode is %s\n", unicode);
+#endif
+        
+        return 0;
+}
+
+int big2hex(char *input, char *output)
+{
+	unsigned char src[UNICODE_LEN + 1];
+	unsigned char tmp[16 + 1];
+	
+	clr(src);
+	clr(tmp);
+	strncpy(src, input, BIG_LEN);
+	
+	sprintf(tmp, "%02X", (unsigned char)src[0]);
+	sprintf(tmp + 2, "%02X", (unsigned char)src[1]);
+	tmp[strlen(tmp)]='\0';
+	
+	memcpy(output, tmp, strlen(tmp));
+	return 0;
+}
+
+/*
+ * eg,space 20  -> hex, 0x20
+ */
+int half2hex(char *input, char *output)
+{
+	unsigned char src[2 + 1];
+	unsigned char outbuf[1 + 1];
+	
+	int v1;
+	
+	memcpy(src, input, 2);
+	
+	sscanf(src, "%2X", &v1);
+	outbuf[0]=(unsigned char)v1;
+	outbuf[1]='\0';
+	
+	memcpy(output, outbuf, strlen(outbuf));
+	return 0;
+}
+
+int get_unicode_hex(char *unicode, char *hex)
+{
+	unsigned char src[UNICODE_LEN + 1];
+	unsigned char tmp[16 + 1];
+	
+	clr(src);
+	clr(tmp);
+	strncpy(src, unicode, UNICODE_LEN);
+	
+	sprintf(tmp, "%02X", (unsigned char)src[0]);
+	sprintf(tmp + 2, "%02X", (unsigned char)src[1]);
+	tmp[strlen(tmp)]='\0';
+	
+	memcpy(hex, tmp, strlen(tmp));
+	return 0;
+}
+
+int b2u(unsigned char *inbuf, unsigned char *outbuf)
+{
+	unsigned char utf8[UTF8_LEN + 1];
+	unsigned char big5[BIG_LEN + 1];
+	unsigned char incode[IN_COD_LEN + 1];
+	unsigned char unicode[UNICODE_LEN + 1];
+	unsigned char hexunicode[IN_COD_LEN + 1];
+	
+	clr(incode);
+	clr(utf8);
+	clr(big5);
+	clr(unicode);
+	clr(hexunicode);
+	
+	memcpy(incode, inbuf, IN_COD_LEN);
+PRINT_TEST;
+	
+#ifdef DEBUG_TEST
+	fprintf(stderr, "incode---->%s\n", incode);
+#endif	
+
+	
+	if (query_hex_by_incode(incode, hexunicode)) 
+	{
+		/* query fail ,set default */
+		fprintf(stderr, "query_hex_by_incode err\n");
+		
+		/* input is like XXXX, should conver to big5 */
+		hex2big5(incode, big5);
+		
+#ifdef DEBUG_TEST
+	fprintf(stderr, "after hex2big5---->\n");
+	print_hex(big5, strlen(big5));
+#endif		
+		
+		/* big5 transfer to unicode */
+		if (big2unicode(big5, BIG_LEN, unicode, UNICODE_LEN))
+		{
+			/*
+			 * transfer to unicode fail
+			 * query oracle character table
+			 *
+			 */
+			fprintf(stderr, "big2unicode err\n");
+			set_utf8_start(utf8);
+			memcpy(outbuf, utf8, UTF8_LEN);
+			return 0;
+		}
+		
+#ifdef DEBUG_TEST
+	fprintf(stderr, "big2unicode err\n");
+	print_hex(unicode, strlen(unicode));
+#endif
+	}
+	else
+	{
+#ifdef DEBUG_TEST
+	fprintf(stderr, "in b2u: hexunicode is %s\n", hexunicode);
+#endif
+		hex2unicode(hexunicode, unicode);
+	}
+
+#ifdef DEBUG_TEST
+	fprintf(stderr, "unicode hex---->\n");
+	print_hex(unicode, strlen(unicode));
+#endif	
+
+	if (unicode2utf(unicode, UNICODE_LEN, utf8, UTF8_LEN))
+	{
+		/* transfer fail ,set default */
+		fprintf(stderr, "unicode2utf err\n");
+		set_utf8_start(utf8);
+	}
+	
+#ifdef DEBUG_TEST
+	fprintf(stderr, "strlen(utf8)=%d---->\n", strlen(utf8));
+	print_hex(utf8, strlen(utf8));
+	fprintf(stderr, "\n");
+#endif		
+	
+	memcpy(outbuf, utf8, UTF8_LEN);
+	
+	fprintf(stderr, "*******************\n");
+	print_hex(outbuf, strlen(outbuf));
+	fprintf(stderr, "\n");
+	
+	return 0;
+}
+
+/*
+ *      * -> ff0a(Unicode) -> A1AF(big5)
+ */
+int u2b(unsigned char *inbuf, unsigned char *outbuf)
+{
+	int ret;
+	unsigned char unicode[UNICODE_LEN + 1];
+	unsigned char hexunicode[IN_COD_LEN + 1];
+	unsigned char big5[BIG_LEN + 1];
+	unsigned char incode[IN_COD_LEN + 1];
+	
+	clr(unicode);
+	clr(hexunicode);
+	clr(big5);
+	clr(incode);
+	
+	PRINT_TEST;
+	
+	/* utf-8 transfer to unicode */
+	if (utf2unicode(inbuf, UTF8_LEN, unicode, UNICODE_LEN))
+	{
+		/*
+		 * transfer to unicode fail 
+		 * return * big code
+		 */
+		 
+#ifdef DEBUG_TEST
+	fprintf(stderr, "utf2unicode error\n");
+#endif
+		set_big5_start(big5);
+	}
+	else
+	{
+		
+#ifdef DEBUG_TEST
+	fprintf(stderr, "utf2unicode succ\n");
+	fprintf(stderr, "unicode is:");
+	
+	print_hex(unicode, strlen(unicode));
+	fprintf(stderr, "\n");
+#endif
+		get_unicode_hex(unicode, hexunicode);
+
+#ifdef DEBUG_TEST
+	fprintf(stderr, "hexunicode is:%s\n", hexunicode);
+#endif
+		 	
+		if (query_hex_by_unicode(hexunicode, incode))
+		{
+			
+#ifdef DEBUG_TEST
+	fprintf(stderr, "query_hex_by_unicode error\n");
+#endif
+			/* query table fail */
+			if (unicode2big(unicode, UNICODE_LEN, big5,BIG_LEN))
+			{
+				/*
+		 		 * transfer to big5 fail 
+		 		 * query oracle character table
+		 		 */
+		 		set_big5_start(big5);
+#ifdef DEBUG_TEST
+	fprintf(stderr, "unicode2big error\n");
+#endif
+			}
+		}
+		else
+		{
+			fprintf(stderr, "query incode is %s\n", incode);
+			memcpy(outbuf, incode, sizeof(incode));
+			return 0;
+		}
+	}
+	
+	fprintf(stderr, "big is:");
+	print_hex(big5, strlen(big5));
+	fprintf(stderr, "\n");
+	
+	big2hex(big5, incode);
+	memcpy(outbuf, incode, sizeof(incode));
+	
+	return 0;
+}
+
+/* big5 -> utf-8 */
+int big2unicode(unsigned char *inbuf, size_t inlen, unsigned char *outbuf,  
+	size_t outlen)
+{
+	return code_iconv("big5","Unicode",inbuf,inlen,outbuf,outlen);
+}
+
+int unicode2utf(unsigned char *inbuf, size_t inlen, unsigned char *outbuf,  
+	size_t outlen)
+{
+	return code_iconv("Unicode","UTF-8",inbuf,inlen,outbuf,outlen);
+}
+
+/*
+ * delete space
+ */
+char* trim( char* s )
+{
+	char *copied;
+	char *tail; 
+
+	if( s == NULL )
+		return NULL;
+
+	for( copied = s, tail = NULL; *s != 0; s++ )
+	{
+		if( *s != ' ' && *s != '\t' )
+		{
+			*copied++ = *s;
+			tail = copied;
+		}
+		else
+		{
+			if( tail != NULL )
+				*copied++ = *s;
+		}
+	}
+
+	if( tail != NULL )
+		*tail = 0;
+	else
+		*copied = 0;
+
+	return s;
+}
+
+/*
+ * from oibs to pre-machine
+ * utf-8 -> unicode -> big5(in_code)
+ */
+int o2p(unsigned char *from_buf,unsigned char *to_buf)
+{
+	int len = 0;
+	unsigned char inbuf[BUF_LEN];
+	unsigned char outbuf[BUF_LEN];
+	
+	unsigned char utf8[UTF8_LEN + 1];
+	unsigned char big5[BIG_LEN + 1];
+	unsigned char incode[IN_COD_LEN + 1];
+	
+	unsigned char *pin=inbuf;
+	unsigned char *pout=outbuf;
+	
+	clr(inbuf);
+	clr(outbuf);
+	clr(incode);
+	
+	memcpy(inbuf, from_buf, strlen(from_buf));
+	
+	PRINT_TEST;
+	
+	/*
+	 * transfer by character 
+	 * utf-8 one character have 3 bit
+	 */
+	while ('\0' != *pin)
+	{
+		clr(utf8);
+		memcpy(utf8, pin, UTF8_LEN);
+		u2b(utf8, incode);
+			
+		sprintf(outbuf + len, "%4s", incode);
+		pin += UTF8_LEN;
+		len += IN_COD_LEN;
+		
+#ifdef DEBUG_TEST
+		fprintf(stderr, "\nutf8->");
+		print_hex(utf8, strlen(utf8));
+		fprintf(stderr, "\nincode->%s\n", incode);
+		fprintf(stderr, "=======================\n");
+#endif
+	}
+	
+	outbuf[len]= '\0';
+	
+	memcpy(to_buf, outbuf, strlen(outbuf));
+	
+	return 0;
+}
+
+/*
+ * 
+ */
+int is_full(char *buf)
+{
+	int v1;
+	unsigned char outbuf[1 + 1];
+	char src[2 + 1];
+	
+	clr(src);
+	clr(outbuf);
+	
+	memcpy(src, buf, 2);
+	
+fprintf(stderr, "in is_full: unicode is %s\n", src);
+	
+	sscanf(src, "%2X", &v1);
+	outbuf[0]=(unsigned char)v1;
+	outbuf[1]='\0';
+
+	if(outbuf[0] >= 0x20 && outbuf[0]<0x7F)
+	{
+		return 1;
+	}
+	else
+	{
+		return 0;
+	}
+	
+/*
+	 if(strncmp(src, "20",2) == 0)
+	{
+		return 0;
+	}
+	else
+	{
+		return 1;
+	}*/	
+}
+
+
+/*
+ *
+ */
+int half_to_full(char *inbuf, char *outbuf)
+{
+	int ibuf = 0;
+	int ioutbuf = 0;
+	int inbuflen = strlen(inbuf);
+	char ctmp[3] = {'\0'};
+	
+	for (; ibuf < inbuflen; ibuf++, ioutbuf++)
+	{
+		if ( (inbuf[ibuf] < 0x7F) && (inbuf[ibuf] >= 0x20))
+		{
+			if ((inbuf[ibuf] <= 0x39) && (inbuf[ibuf] >= 0x30))		/*  0123456789  */
+			{
+				ctmp[0] = 0xA2;
+				ctmp[1] = inbuf[ibuf] + 0x7F;
+			}
+			else if ((inbuf[ibuf] <= 0x5A) && (inbuf[ibuf] >= 0x41))	/*  ABCDEF ...  */
+			{
+				ctmp[0] = 0xA2;
+				ctmp[1] = inbuf[ibuf] + 0x8E;
+			}
+			else if ((inbuf[ibuf] <= 0x76) && (inbuf[ibuf] >= 0x61))	/*  abcdef ...  */
+			{
+				ctmp[0] = 0xA2;
+				ctmp[1] = inbuf[ibuf] + 0x88;
+			}
+			else
+			{
+				switch (inbuf[ibuf])
+				{
+					case 0x20: ctmp[0] = 0xA1; ctmp[1] = 0x40; break;	/* space */
+					case 0x21: ctmp[0] = 0xA1; ctmp[1] = 0x49; break;	/* ! */
+					case 0x22: ctmp[0] = 0xA1; ctmp[1] = 0xA9; break;	/* " */
+					case 0x23: ctmp[0] = 0xA1; ctmp[1] = 0xAD; break;	/* # */
+					case 0x24: ctmp[0] = 0xA2; ctmp[1] = 0x43; break;	/* $ */
+					case 0x25: ctmp[0] = 0xA2; ctmp[1] = 0x48; break;	/* % */
+					case 0x26: ctmp[0] = 0xA1; ctmp[1] = 0xAE; break;	/* & */
+					case 0x27: ctmp[0] = 0xA1; ctmp[1] = 0xAB; break;	/* ' */
+					case 0x28: ctmp[0] = 0xA1; ctmp[1] = 0x5D; break;	/* ( */
+					case 0x29: ctmp[0] = 0xA1; ctmp[1] = 0x5E; break;	/* ) */
+					case 0x2A: ctmp[0] = 0xA1; ctmp[1] = 0xCE; break;	/* * */
+					case 0x2B: ctmp[0] = 0xA1; ctmp[1] = 0xCF; break;	/* + */
+					case 0x2C: ctmp[0] = 0xA1; ctmp[1] = 0x41; break;	/* , */
+					case 0x2D: ctmp[0] = 0xA1; ctmp[1] = 0xD0; break;	/* - */
+					case 0x2E: ctmp[0] = 0xA1; ctmp[1] = 0x44; break;	/* . */
+					case 0x2F: ctmp[0] = 0xA1; ctmp[1] = 0xFE; break;	/* / */
+					case 0x3A: ctmp[0] = 0xA1; ctmp[1] = 0x47; break;	/* : */
+					case 0x3B: ctmp[0] = 0xA1; ctmp[1] = 0x46; break;	/* ; */
+					case 0x3C: ctmp[0] = 0xA1; ctmp[1] = 0xE0; break;	/* < */
+					case 0x3D: ctmp[0] = 0xA1; ctmp[1] = 0xE2; break;	/* = */
+					case 0x3E: ctmp[0] = 0xA1; ctmp[1] = 0xE1; break;	/* > */
+					case 0x3F: ctmp[0] = 0xA1; ctmp[1] = 0x48; break;	/* ? */
+					case 0x40: ctmp[0] = 0xA2; ctmp[1] = 0x49; break;	/* @ */
+					case 0x5B: ctmp[0] = 0xA1; ctmp[1] = 0x69; break;	/* [ */
+					case 0x5C: ctmp[0] = 0xA2; ctmp[1] = 0x40; break;	/* \ */
+					case 0x5D: ctmp[0] = 0xA1; ctmp[1] = 0x6A; break;	/* ] */
+					case 0x5E: ctmp[0] = 0xA1; ctmp[1] = 0x73; break;	/* ^ */
+					case 0x5F: ctmp[0] = 0xA1; ctmp[1] = 0xC4; break;	/* _ */
+					case 0x60: ctmp[0] = 0xA1; ctmp[1] = 0xAB; break;	/* ` */
+					case 0x77: ctmp[0] = 0xA3; ctmp[1] = 0x40; break;	/* w */
+					case 0x78: ctmp[0] = 0xA3; ctmp[1] = 0x41; break;	/* x */
+					case 0x79: ctmp[0] = 0xA3; ctmp[1] = 0x42; break;	/* y */
+					case 0x7A: ctmp[0] = 0xA3; ctmp[1] = 0x43; break;	/* z */
+					case 0x7B: ctmp[0] = 0xA1; ctmp[1] = 0x61; break;	/* { */
+					case 0x7C: ctmp[0] = 0xA1; ctmp[1] = 0xFD; break;	/* | */
+					case 0x7D: ctmp[0] = 0xA1; ctmp[1] = 0x62; break;	/* } */
+					case 0x7E: ctmp[0] = 0xA1; ctmp[1] = 0xCA; break;	/* ~ */
+					
+					default: ctmp[0] = 0xA1; ctmp[1] = 0xCE; break;	/* ! */
+				}
+			}
+			outbuf[ioutbuf] = ctmp[0];
+			outbuf[++ioutbuf] = ctmp[1];
+		}
+		else if (inbuf[ibuf] > 0xA0)
+		{
+			outbuf[ioutbuf] = inbuf[ibuf];
+			outbuf[++ioutbuf] = inbuf[++ibuf];
+		}
+		else
+		{
+			outbuf[ioutbuf] = inbuf[ibuf];
+		}
+	}
+	outbuf[strlen(outbuf)] = '\0';
+	
+	return 0;
+}
+
+/*
+ * from pre-machine to oibs
+ * big5 -> unicode -> utf-8
+ */
+int p2o(unsigned char *from_buf,unsigned char *to_buf)
+{
+	int len = 0;
+	unsigned char inbuf[BUF_LEN];
+	unsigned char outbuf[BUF_LEN];
+	
+	unsigned char utf8[UTF8_LEN + 1];
+	unsigned char big5[BIG_LEN + 1];
+	unsigned char incode[IN_COD_LEN + 1];
+	unsigned char half[2 + 1];
+	unsigned char hex[1 + 1];
+	
+	unsigned char *pin=inbuf;
+	unsigned char *pout=outbuf;
+	
+	clr(inbuf);
+	clr(outbuf);
+	clr(incode);
+	clr(utf8);
+	
+	memcpy(inbuf, from_buf, strlen(from_buf));
+	
+	fprintf(stderr, "inbuf[%s]\n", inbuf);
+	
+PRINT_TEST;	
+
+
+	while ('\0' != *pin)
+	{
+		if (is_full(pin)) /* half */
+		{
+			fprintf(stderr, "==========half=============\n");
+			
+			clr(half);
+			clr(hex);
+			clr(big5);
+			clr(incode);
+			clr(utf8);
+		
+			memcpy(half, pin, 2);
+			half2hex(half, hex);
+			
+			half_to_full(hex,big5);
+			
+			big2hex(big5, incode);
+			
+			b2u(incode, utf8);
+		
+			fprintf(stderr, "strlen(utf8)=%d\n", strlen(utf8));
+		
+			sprintf(outbuf + len, "%3s", utf8);
+			pin += 2;
+			len += UTF8_LEN;
+		
+#ifdef DEBUG_TEST
+/*
+			fprintf(stderr, "\nincode->%s\n", incode);
+*/		
+			fprintf(stderr, "\nutf8->");
+			print_hex(utf8, strlen(utf8));
+
+			fprintf(stderr, "\n=======================\n");
+#endif
+		}
+		else /* full */
+		{	
+			fprintf(stderr, "==========full=============\n");
+			clr(incode);
+			clr(utf8);
+		
+			memcpy(incode, pin, IN_COD_LEN);
+			b2u(incode, utf8);
+		
+			fprintf(stderr, "strlen(utf8)=%d\n", strlen(utf8));
+		
+			sprintf(outbuf + len, "%3s", utf8);
+			pin += IN_COD_LEN;
+			len += UTF8_LEN;
+		
+#ifdef DEBUG_TEST
+/*
+			fprintf(stderr, "\nincode->%s\n", incode);
+*/		
+			fprintf(stderr, "\nutf8->");
+			print_hex(utf8, strlen(utf8));
+
+			fprintf(stderr, "\n=======================\n");
+		}
+#endif
+	}
+	
+	outbuf[strlen(outbuf)]= '\0';
+	memcpy(to_buf, outbuf, strlen(outbuf));
+	
+	return 0;
+}
+
+int trim_right_space(char *inbuf, char *outbuf)
+{
+	int i = 0, j=0, len=0;
+	unsigned char buf[512];
+	unsigned char tmp[512];
+	
+	clr(buf);
+	clr(tmp);
+	
+	len=strlen(inbuf);
+PRINT_TEST;	
+	fprintf(stderr,"len=%d\n", len);
+	
+	memcpy(buf, inbuf, strlen(inbuf));
+	
+	char *tail = buf + strlen(buf) -1 -5;
+	char *pre = buf;
+	
+	while(1)
+	{
+		if (0 == strncmp(tail, "E38080", 6))
+		{
+			j += 6;
+			tail -= 6;
+		}
+		else
+			break;
+	}
+	
+	i=len - j;
+	
+	fprintf(stderr, "i=%d\n", i);
+	
+	memcpy(outbuf, buf, i);
+	
+	return 0;
+}
+
+int trim_left_space(char *inbuf, char *outbuf)
+{
+	int i = 0, j=0, len=0;
+	unsigned char buf[512];
+	unsigned char tmp[512];
+	
+	clr(buf);
+	clr(tmp);
+	
+	len=strlen(inbuf);
+	
+	fprintf(stderr,"len=%d\n", len);
+	
+	memcpy(buf, inbuf, strlen(inbuf));
+PRINT_TEST;	
+	char *pre = buf;
+	
+	while(1)
+	{
+		if (0 == strncmp(pre, "E38080", 6))
+		{
+			j += 6;
+			pre += 6;
+		}
+		else
+			break;
+	}
+	
+	i=len - j;
+	
+	fprintf(stderr,"i=%d\n", i);
+	
+	memcpy(outbuf, pre, i);
+	
+	return 0;
+}
+
+
+
+int trim_full_space(char *inbuf, char *outbuf)
+{
+	int i = 0, j=0, len;
+	unsigned char buf[512];
+	unsigned char buf_hex[512];
+	unsigned char tmp_r[512];
+	unsigned char tmp_l[512];
+	unsigned char tmp[512];
+	
+	char *p = buf_hex;
+	
+	clr(buf_hex);
+	clr(buf);
+	clr(tmp_r);
+	clr(tmp_l);
+	clr(tmp);
+	
+	len=strlen(inbuf);
+	memcpy(buf, inbuf, len);
+
+	/*Print Hex*/
+	for(i=0,j=0;i<len;i++)
+	{
+		if (buf[i] == '\0')
+		{
+			printf("\n");
+			break;
+		}
+		sprintf(buf_hex + j, "%X", (unsigned char)buf[i]);
+		j += 2;
+	}
+	
+	buf_hex[strlen(buf_hex)]='\0';
+	
+	fprintf(stderr, "\n===trim_full_space==%s\n", buf_hex);
+	
+	trim_left_space(buf_hex, tmp_l);
+	trim_right_space(tmp_l, tmp_r);
+	
+	fprintf(stderr, "\n===tmp_r==%s\n", tmp_r);
+	
+	tmp_r[strlen(tmp_r)] = '\0';
+	hex2utf(tmp_r,tmp);
+	
+	
+	
+	memcpy(outbuf, tmp, strlen(tmp));
+
+	return 0;
+}
+
+/*
+ * hex to utf-8
+ */
+int hex2utf(char *inbuf, char *outbuf)
+{
+	unsigned char tmp[3 + 1];
+	unsigned char hex[6 + 1];
+	
+	unsigned char *p = inbuf;
+	
+	int i = 0;
+	
+	int v1,v2,v3;
+	
+	while(*p != '\0')
+	{
+	
+		clr(tmp);
+		clr(hex);
+PRINT_TEST;
+		memcpy(hex, p, 6);
+	
+		sscanf(hex, "%2X%2X%2X", &v1, &v2, &v3);
+		tmp[0] = (unsigned char)v1;
+		tmp[1] = (unsigned char)v2;
+		tmp[2] = (unsigned char)v3;
+	
+		memcpy(outbuf + i, tmp, 3);
+		i += 3;
+		p += 6;
+	}
+	return 0;
+}
+
+/*
+ * 
+ */
+int main()
+{
+	unsigned char inbuf[BUF_LEN];
+	unsigned char outbuf[BUF_LEN];
+	unsigned char tmpbuf[BUF_LEN];
+	char sztranflg[1 + 1];
+	int tranflg;
+	unsigned long     RespCode;	/**/
+	void              *CommArea;	/**/
+	unsigned short    CommLen;	/**/
+	
+	char    commretmsg[201];	/**/
+	
+	char *Tbuf;			/**/
+	char *Sbuf;			/**/
+	
+	clr(inbuf);
+	clr(outbuf);
+	clr(tmpbuf);
+	
+	fprintf(stderr,"============== in codTran ===================\n");
+	
+	EXEC CICS ADDRESS EIB(dfheiptr);
+
+	CommLen = dfheiptr->eibcalen;
+
+	EXEC CICS ADDRESS COMMAREA(CommArea) RESP(RespCode);
+	if (RespCode != DFHRESP(NORMAL))
+	{
+		fprintf(stderr, "iconv->get CommArea address failed!");
+		EXEC CICS RETURN;
+	}
+
+	if(CommLen < sizeof(CSPARAMTYPE))
+	{
+		fprintf(stderr, "iconv->COMMAREA data error!");
+		strcpy((char *)CommArea,RET_SYSBUSY);
+		EXEC CICS RETURN;
+	}
+	
+	cssGetGlobeParam((CSPARAMTYPE *)CommArea);
+
+	strcpy((char *)CommArea,RET_SUCCESS);
+	
+	clr(commretmsg);	
+
+	css_CICS_Debug(MYFILE,MYLINE,DEBUGLEVEL_3,TXT_DEBUG,0,NULL,
+                   "iconv start" );
+  
+	Sbuf = (char *)cssGetMBuf(1,0);
+	if (Sbuf == NULL)
+	{
+		css_CICS_HandleError(MYFILE,MYLINE,FUNC_ERROR,NULL,NULL, "get platform point error!" );
+		strcpy((char *)CommArea, "0000002");  
+   
+		EXEC CICS RETURN;
+	}   
+    
+	memset(Sbuf+IMBUSEDLEN(0), 0x00, IMBINBUFLEN(0)-IMBUSEDLEN(0));
+    
+	css_GetIfaField("T3_PD_DIR", 1, sztranflg, NULL);
+	css_GetIfaField("T3_PD_INBUF", 1, inbuf, NULL);
+	cssTrimSpace(sztranflg);
+	cssTrimSpace(inbuf);
+	
+	tranflg=atoi(sztranflg);
+	
+	if (0 == strlen(inbuf))
+	{
+		css_UpdateIfaField("T3_PD_OUTBUF",1,outbuf,BUF_LEN);
+        
+		css_CICS_Debug(MYFILE,MYLINE,DEBUGLEVEL_3,TXT_DEBUG,0,NULL, "conver success!");
+
+		EXEC CICS RETURN;
+	}
+	
+#ifdef DEBUG_TEST
+	fprintf(stderr, "in main: tranflg is %d\n", tranflg);
+#endif
+	if (OIBS_TO_PREMACHINE == tranflg)
+	{
+		fprintf(stderr, "inbuf:%s", inbuf);
+		fprintf(stderr, "\n", inbuf);
+		print_hex(inbuf, strlen(inbuf));
+		
+		o2p(inbuf, outbuf);
+		
+		fprintf(stderr, "outbuf:%s\n", outbuf);
+	}
+	else if (PREMACHINE_TO_OIBS == tranflg)
+	{
+		fprintf(stderr, "inbuf->%s\n", inbuf);
+		
+		p2o(inbuf, tmpbuf);
+		outbuf[strlen(tmpbuf)]='\0';
+		
+#ifdef DEBUG_TEST
+		fprintf(stderr, "\ntmpbuf->");
+		print_hex(tmpbuf, strlen(tmpbuf));
+		fprintf(stderr, "\n");
+		
+		fprintf(stderr, "UTF-8 -->%s", tmpbuf);
+		fprintf(stderr, "\n");
+		
+		trim_full_space(tmpbuf, outbuf);
+		
+		fprintf(stderr, "\noutbuf->");
+		print_hex(tmpbuf, strlen(outbuf));
+		fprintf(stderr, "\n");
+		
+		
+		
+		
+#endif
+	}
+	else
+	{
+		css_CICS_HandleError(MYFILE,MYLINE,IBMQ_ERROR,NULL,NULL, "conver flag[%d] error!", tranflg);
+		EXEC CICS RETURN;
+	}
+	
+	css_UpdateIfaField("T3_PD_OUTBUF",1,outbuf,BUF_LEN);
+        
+	css_CICS_Debug(MYFILE,MYLINE,DEBUGLEVEL_3,TXT_DEBUG,0,NULL, "conver success!");
+
+	EXEC CICS RETURN;
+}
